@@ -1,0 +1,106 @@
+---	
+title: "Extract mutation calls for DLBCL genomes"	
+author: "Stacy Hung"	
+date: "November 12, 2019"	
+output: html_document	
+---	
+	
+This script performs the following tasks:	
+- reads variants as published in Arthur et al. Nat. Comm 2018 - file has been filtered to exclude intronic, intergenic and 3'/5' flanking variants
+- extracts calls in 18 genomes of interest
+
+## Load libraries
+ 	
+```{r}
+library(dplyr)    # filter and rename
+library(tidyr)    # separate	
+```
+
+## Read in datasets of interest
+
+```{r}
+genome_cases <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/data/genomes-ids.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+genome_calls <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/Arthur_et_al-Nat_Comm-2018/41467_2018_6354_MOESM4_ESM.filtered.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+exome_calls <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/exomes/calls.integration/snvs.all.intersect.with_germline_filters.txt", sep = "\t", header = TRUE, fill = TRUE)
+```
+
+## Filter genome calls
+
+```{r}
+# for reference, print out a list of unique res-ids represented by this dataset
+genome.all.res_ids <- unique(genome_calls$Tumor_Sample_Barcode)
+write.table(genome.all.res_ids, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/data/all.res_ids.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+# only keep variants that are in the 18 genome cases of interest
+genomes.res_ids <- genome_cases$ResID
+genome_calls <- filter(genome_calls, genome_calls$Tumor_Sample_Barcode %in% genomes.res_ids)
+genome_calls$Tumor_Sample_Barcode <- factor(genome_calls$Tumor_Sample_Barcode)
+
+# map to SnpEff effects 
+MAF_VarClass.to.SnpEff <- c(
+                            "CODON_DELETION"="Frame_Shift_Del",
+                            "CODON_INSERTION"="Frame_Shift_Ins",
+                            "NON_SYNONYMOUS_CODING"="Missense_Mutation",
+                            "NON_SYNONYMOUS_START"="Missense_Mutation",
+                            "SPLICE_SITE_ACCEPTOR"="Splice_Site",
+                            "SPLICE_SITE_DONOR"="Splice_Site",
+                            "SPLICE_SITE_REGION"="Splice_Site",
+                            "START_GAINED"="Translation_Start_Site",
+                            "START_LOST"="Missense_Mutation",
+                            "STOP_GAINED"="Nonsense_Mutation",
+                            "STOP_LOST"="Nonstop_Mutation",
+                            "CODON_CHANGE_PLUS_CODON_INSERTION"="Frame_Shift_Ins",
+                            "CODON_CHANGE_PLUS_CODON_DELETION"="Frame_Shift_Del",
+                            "SYNONYMOUS_CODING"="Silent",
+                            "SYNONYMOUS_STOP"="Silent",
+                            "EXON"="Targeted_Region",
+                            "FRAME_SHIFT"="Frame_Shift_Del"
+                            )
+mutations$effect <- revalue(mutations$effect, snpeff_effect.to.MAF_VarClass)
+
+```
+
+
+## Plot total numbers of mutations stacked by variant class
+
+```{r}
+library(ggplot2)
+library(plyr) # revalue function
+
+# make sure mutations are unique (based on a single transcript)
+calls.all <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_2019/calls.integration/snvs.all.intersect.with_germline_filters.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+calls.all$class <- revalue(calls.all$effect, c("NON_SYNONYMOUS_CODING"="Missense", 
+                           "NON_SYNONYMOUS_START"="Missense",
+                           "START_GAINED"="Missense",
+                           "START_LOST"="Start Lost",
+                           "STOP_LOST"="Missense",
+                           "STOP_GAINED"="Nonsense",
+                           "STOP_GAINED+CODON_CHANGE_PLUS_CODON_DELETION"="Nonsense",
+                           "CODON_CHANGE_PLUS_CODON_DELETION"="In-frame Indel",
+                           "CODON_CHANGE_PLUS_CODON_INSERTION"="In-frame Indel",
+                           "CODON_DELETION"="In-frame Indel",
+                           "CODON_INSERTION"="In-frame Indel",
+                           "FRAME_SHIFT"="Frameshift Indel",
+                           "FRAME_SHIFT+START_LOST"="Frameshift Indel",
+                           "SPLICE_SITE_ACCEPTOR"="Splice site",
+                           "SPLICE_SITE_DONOR"="Splice site",
+                           "UTR_3_PRIME"="3' UTR",
+                           "UTR_5_PRIME"="5' UTR"
+                           ))
+
+
+calls.all$tumor_id <- factor(calls.all$tumor_id)
+data.df <- as.data.frame(table(calls.all$tumor_id, calls.all$class))
+colnames(data.df) <- c("case", "variant_class", "count")
+
+# sort by total number of mutations
+p <- ggplot(data = data.df, aes(x = reorder(case, -count), y = count, fill = variant_class)) + 
+  geom_bar(stat = "identity", width = 0.6) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_fill_discrete(name = "Variant Class") +
+  xlab("") + ylab("Number of mutations") 
+```
+
