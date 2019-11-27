@@ -67,7 +67,7 @@ mutations$effect <- revalue(mutations$effect, snpeff_effect.to.MAF_VarClass)
 
 # keep only the columns that are relevant to MAF generation
 keeps <- c("tumor_id", "type", "chr", "pos", "gene", "ref", "alt", "gt_tumor", "HGVS_protein",
-            "allele_freq_tumor", "effect")
+           "var_reads_tumor", "allele_freq_tumor",  "effect", "external_id")
 mutations <- mutations[keeps]
 
 # rename samples column to match MAF format
@@ -78,8 +78,10 @@ setnames(mutations, "ref", "Reference_Allele")
 setnames(mutations, "chr", "Chromosome")
 setnames(mutations, "pos", "Start_Position")
 setnames(mutations, "type", "Variant_Type")
-setnames(mutations, "allele_freq_tumor", "VAF")
+setnames(mutations, "allele_freq_tumor", "Tumor_Allele_Freq")
 setnames(mutations, "HGVS_protein", "HGVS")
+setnames(mutations, "external_id", "External_ID")
+setnames(mutations, "var_reads_tumor", "Tumor_Var_Reads")
 
 # remove "chr" prefix to match MAF format
 mutations$Chromosome <- gsub("^chr", "", mutations$Chromosome)
@@ -138,8 +140,9 @@ mutations <- FindReplace(data = mutations,
 # reorder columns
 keeps <- c("Tumor_Sample_Barcode", "Variant_Type", "Hugo_Symbol", 
            "Chromosome", "Start_Position", "End_Position", 
-           "Reference_Allele", "Tumor_Seq_Allele1", "Tumor_Seq_Allele2", "VAF",
-           "Variant_Classification", "Protein_Change", "CDS_Change")
+           "Reference_Allele", "Tumor_Seq_Allele1", "Tumor_Seq_Allele2", 
+           "Tumor_Var_Reads", "Tumor_Allele_Freq",
+           "Variant_Classification", "Protein_Change", "CDS_Change", "External_ID")
 mutations <- mutations[keeps]
 
 # write to output for downstream analysis (e.g. oncoplot, lolliplot)
