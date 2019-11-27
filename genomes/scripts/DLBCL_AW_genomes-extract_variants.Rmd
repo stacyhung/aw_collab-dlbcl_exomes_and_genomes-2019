@@ -1,0 +1,115 @@
+---	
+title: "Extract mutation calls for DLBCL genomes"	
+author: "Stacy Hung"	
+date: "November 12, 2019"	
+output: html_document	
+---	
+	
+This script performs the following tasks:	
+- reads variants as published in Arthur et al. Nat. Comm 2018 - file has been filtered to exclude intronic, intergenic and 3'/5' flanking variants
+- extracts calls in 18 genomes of interest
+
+## Load libraries
+ 	
+```{r}
+library(dplyr)    # filter and rename
+library(tidyr)    # separate	
+```
+
+## Read in datasets of interest
+
+```{r}
+genome_cases <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/data/genomes-ids.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+genome_calls <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/Arthur_et_al-Nat_Comm-2018/AW_gph_genomes.filtered.min_columns.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+exome_calls <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/exomes/maf/all.AW_DLBCL_exomes_2019.mutations.maf", sep = "\t", header = TRUE, fill = TRUE)
+```
+
+## Filter genome calls
+
+```{r}
+# for reference, print out a list of unique res-ids represented by this dataset
+#genome.all.res_ids <- unique(genome_calls$Tumor_Sample_Barcode)
+#write.table(genome.all.res_ids, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/data/all.res_ids.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+# only keep variants that are in the 18 genome cases of interest
+genomes.res_ids <- genome_cases$ResID
+genome_calls <- filter(genome_calls, genome_calls$Tumor_Sample_Barcode %in% genomes.res_ids)
+genome_calls$Tumor_Sample_Barcode <- factor(genome_calls$Tumor_Sample_Barcode)
+
+# rename columns
+setnames(genome_calls, "Existing_variation", "External_ID")
+setnames(genome_calls, "HGVSp_Short", "Protein_Change")
+setnames(genome_calls, "HGVSc", "CDS_Change")
+setnames(genome_calls, "t_alt_count", "Tumor_Var_Reads")
+
+# calculate VAF column
+genome_calls <- genome_calls %>%
+  mutate(Tumor_Allele_Freq = ifelse(as.numeric(genome_calls$t_depth) > 0, 
+                      (as.numeric(genome_calls$t_alt_count) / as.numeric(genome_calls$t_depth))*100, 
+                      "NA"))
+
+# extract only columns of interest (and reorder)
+keeps <- c("Tumor_Sample_Barcode", "Variant_Type", "Hugo_Symbol", 
+           "Chromosome", "Start_Position", "End_Position", 
+           "Reference_Allele", "Tumor_Seq_Allele1", "Tumor_Seq_Allele2", 
+           "Tumor_Var_Reads", "Tumor_Allele_Freq",
+           "Variant_Classification", "Protein_Change", "CDS_Change", "External_ID")
+genome_calls <- genome_calls[keeps]
+
+write.table(genome_calls, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/gph_genomes.mutations.filtered.maf", sep = "\t", row.names = FALSE, quote = FALSE)
+```
+
+## combine exome and genome datasets
+
+```{r}
+
+calls.all <- rbind(exome_calls, genome_calls)
+
+write.table(calls.all, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/AW_DLBLC_2019-snvs_and_indels.exomes_and_genomes.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+```
+
+
+## Plot total numbers of mutations stacked by variant class
+
+```{r}
+library(ggplot2)
+library(plyr) # revalue function
+
+# make sure mutations are unique (based on a single transcript)
+calls.all <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_2019/calls.integration/snvs.all.intersect.with_germline_filters.txt", sep = "\t", header = TRUE, fill = TRUE)
+
+calls.all$class <- revalue(calls.all$effect, c("NON_SYNONYMOUS_CODING"="Missense", 
+                           "NON_SYNONYMOUS_START"="Missense",
+                           "START_GAINED"="Missense",
+                           "START_LOST"="Start Lost",
+                           "STOP_LOST"="Missense",
+                           "STOP_GAINED"="Nonsense",
+                           "STOP_GAINED+CODON_CHANGE_PLUS_CODON_DELETION"="Nonsense",
+                           "CODON_CHANGE_PLUS_CODON_DELETION"="In-frame Indel",
+                           "CODON_CHANGE_PLUS_CODON_INSERTION"="In-frame Indel",
+                           "CODON_DELETION"="In-frame Indel",
+                           "CODON_INSERTION"="In-frame Indel",
+                           "FRAME_SHIFT"="Frameshift Indel",
+                           "FRAME_SHIFT+START_LOST"="Frameshift Indel",
+                           "SPLICE_SITE_ACCEPTOR"="Splice site",
+                           "SPLICE_SITE_DONOR"="Splice site",
+                           "UTR_3_PRIME"="3' UTR",
+                           "UTR_5_PRIME"="5' UTR"
+                           ))
+
+
+calls.all$tumor_id <- factor(calls.all$tumor_id)
+data.df <- as.data.frame(table(calls.all$tumor_id, calls.all$class))
+colnames(data.df) <- c("case", "variant_class", "count")
+
+# sort by total number of mutations
+p <- ggplot(data = data.df, aes(x = reorder(case, -count), y = count, fill = variant_class)) + 
+  geom_bar(stat = "identity", width = 0.6) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_fill_discrete(name = "Variant Class") +
+  xlab("") + ylab("Number of mutations") 
+```
+
