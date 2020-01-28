@@ -85,7 +85,77 @@ keeps <- c("Tumor_Sample_Barcode", "Variant_Type", "Hugo_Symbol",
            "Variant_Classification", "Protein_Change", "CDS_Change", "External_ID")
 genome_calls <- genome_calls[keeps]
 
-write.table(genome_calls, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/gph_genomes.mutations.filtered.maf", sep = "\t", row.names = FALSE, quote = FALSE)
+# output bed column to be used for hgLiftover from hg38 to hg19 (since exome calls are based on hg19)
+genome_calls$bed <- as.character(
+  paste(paste(genome_calls$Chromosome,genome_calls$Start_Position,sep = ":"), genome_calls$End_Position, sep = "-")
+  )
+write.table(genome_calls, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/gph_genomes.mutations.filtered.with_bed.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
+#write.table(genome_calls, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/gph_genomes.mutations.filtered.maf", sep = "\t", row.names = FALSE, quote = FALSE)
+```
+
+## Create hg19 version of genome mutation calls
+
+```{r}
+# read in list of calls with hg38 coordinates
+genome_calls <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/gph_genomes.mutations.filtered.maf", sep = "\t", header = TRUE, fill = TRUE)
+
+# read in liftover coordinates (hg19)
+genome_calls.with_hg19_bed <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/hglft_genome_32433_b50060.bed")
+colnames(genome_calls.with_hg19_bed) <- c("hg19_liftover")
+
+# combine
+genome_calls <- cbind(genome_calls, genome_calls.with_hg19_bed)
+
+# replace bed column with hg19 coords
+temp <- data.frame(do.call('rbind', strsplit(as.character(genome_calls$hg19_liftover),':',fixed=TRUE)))
+colnames(temp) <- c("chr.hg19", "start-end")
+temp2 <- data.frame(do.call('rbind', strsplit(as.character(temp$`start-end`),'-',fixed=TRUE)))
+colnames(temp2) <- c("Start.hg19", "End.hg19")
+genome_calls <- cbind(genome_calls, temp$chr.hg19, temp2$Start.hg19, temp2$End.hg19)
+genome_calls$Chromosome <- NULL
+genome_calls$Start_Position <- NULL
+genome_calls$End_Position <- NULL
+genome_calls$hg19_liftover <- NULL
+
+colnames(genome_calls) <- c("Tumor_Sample_Barcode", "Variant_Type", "Hugo_Symbol", "Reference_Allele", "Tumor_Seq_Allele1", "Tumor_Seq_Allele2", "Tumor_Var_Reads", "Tumor_Allele_Freq", "Variant_Classification", "Protein_Change", "CDS_Change", "External_ID", "Chromosome", "Start_Position", "End_Position")
+
+# place columns in same order as exome columns
+genome_calls <- genome_calls[, colnames(exome_calls)]
+
+# write to file
+write.table(genome_calls, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/genomes/gph_genomes.mutations.hg19.maf", sep = "\t", row.names = FALSE, quote = FALSE)
+
+# combine with exome calls
+exome_calls <- read.table("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/exomes/maf/all.AW_DLBCL_exomes_2019.mutations.maf", sep = "\t", header = TRUE, fill = TRUE)
+calls.all <- rbind(genome_calls, exome_calls)
+
+# write to file
+write.table(calls.all, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/AW_DLBLC_2019-snvs_and_indels.exomes_and_genomes.hg19.maf", sep = "\t", quote = FALSE, row.names = FALSE)
+
+# create version specific for oncodriveclustl (newest version, via command line)
+maf.cols <- colnames(calls.all)
+oncodriveclust.cols <- c("SAMPLE", "VARIANT_TYPE", "GENE", "CHROMOSOME", "POSITION", "END_POSITION", "REF", 
+                         "ALT_1", "ALT", "TUMOR.VAR_READS", "TUMOR.VAF", "VARIANT_CLASS", "HGVS_PROTEIN",
+                         "HGVS_CDNA", "ID")
+colnames(calls.all) <- oncodriveclust.cols
+write.table(calls.all, "/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/oncodriveclustl/input/AW_DLBLC_2019-snvs_and_indels.exomes_and_genomes.hg19.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
+```
+
+## try oncoclust
+
+```{r}
+library(maftools)
+
+calls.maf <- read.maf("/Volumes/shung/projects/AW_DLBCL_exomes_and_genomes_2019/AW_DLBLC_2019-snvs_and_indels.exomes_and_genomes.hg19.maf")
+
+calls.sig <- oncodrive(maf = calls.maf, AACol = 'Protein_Change', minMut = 3, pvalMethod = 'zscore')
+#calls.sig <- oncodrive(maf = calls.maf, AACol = 'Protein_Change', minMut = 5, pvalMethod = 'zscore', bgEstimate = FALSE)
+head(calls.sig)
+
+plotOncodrive(res = calls.sig, fdrCutOff = 0.1, useFraction = TRUE)
+
+
 ```
 
 ## combine exome and genome datasets
